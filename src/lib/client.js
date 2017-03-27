@@ -45,10 +45,10 @@ function Client (config) {
     this.lastSync = null;
     this.postgresClient = null;
 
-    pgp.pg.defaults.ssl = true;
+    pgp.pg.defaults.ssl = (process.env.DATABASE_URL!=undefined); //use SSL for heroku
 
     this.createPostgresClient = function(){
-        
+
         this.postgresClient = pgp(process.env.DATABASE_URL || {
             user: this.dbUser,
             password: this.dbPassword,
