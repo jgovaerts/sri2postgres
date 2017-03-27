@@ -210,6 +210,8 @@ Client.prototype.getApiContent = function(next) {
       headers: self.apiHeaders, 
     }
     Object.assign(needleOptions, self.apiCredentials)
+    console.log("with needleOptions: ")
+    console.log(needleOptions)
 
 
     operation.attempt(function(attempt){
