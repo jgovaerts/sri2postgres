@@ -216,7 +216,7 @@ Client.prototype.getApiContent = function(next) {
 
         if(attempt > 1){
             console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
-            console.log("with options: " + needleOptions)
+            console.log("with options: " + util.inspect(needleOptions)
         }
 
         needle.get(self.getURL(), needleOptions, function (error,response) {
