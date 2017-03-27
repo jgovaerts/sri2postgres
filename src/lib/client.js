@@ -25,6 +25,7 @@ function Client (config) {
     this.baseApiUrl = config.baseApiUrl;
     this.functionApiUrl = config.functionApiUrl;
     this.apiCredentials = config.hasOwnProperty('credentials') ? config.credentials : {};
+    this.apiHeaders = config.hasOwnProperty('headers') ? config.headers : {};
     this.apiRetries = config.hasOwnProperty('apiRetries') ? config.apiRetries : 2;
 
     this.dbUser = config.db.dbUser;
@@ -205,6 +206,11 @@ Client.prototype.getApiContent = function(next) {
 
     this.apiCredentials.open_timeout = this.apiTimeOut;
 
+    var needleOptions = {
+      headers: self.apiHeaders, 
+    }
+    Object.assign(needleOptions, self.apiCredentials)
+
 
     operation.attempt(function(attempt){
 
@@ -212,7 +218,7 @@ Client.prototype.getApiContent = function(next) {
             console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
         }
 
-        needle.get(self.getURL(),self.apiCredentials, function (error,response) {
+        needle.get(self.getURL(), needleOptions, function (error,response) {
 
             if (operation.retry(error)) {
                 return;
