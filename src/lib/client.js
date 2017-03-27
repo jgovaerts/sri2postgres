@@ -9,6 +9,10 @@ var Transaction = require('pg-transaction');
 var QueryStream = require('pg-query-stream');
 var retry = require('retry');
 
+var pgp = require('pg-promise')();
+
+const Promise = require("bluebird");
+
 // Constructor
 function Client (config) {
 
@@ -23,28 +27,29 @@ function Client (config) {
     this.apiCredentials = config.hasOwnProperty('credentials') ? config.credentials : {};
     this.apiRetries = config.hasOwnProperty('apiRetries') ? config.apiRetries : 2;
 
-    this.dbUser = config.dbUser;
-    this.dbPassword = config.dbPassword;
-    this.database = config.database;
-    this.dbPort = config.dbPort;
-    this.dbHost = config.dbHost;
-    this.dbSsl = config.hasOwnProperty('dbSsl') ? config.dbSsl : false;
-    this.logging = config.hasOwnProperty('logging') ? config.logging : false;
-    this.dbTable = config.dbTable;
+    this.dbUser = config.db.dbUser;
+    this.dbPassword = config.db.dbPassword;
+    this.database = config.db.database;
+    this.dbPort = config.db.dbPort;
+    this.dbHost = config.db.dbHost;
+    this.dbSsl = config.db.hasOwnProperty('dbSsl') ? config.db.dbSsl : false;
+    this.dbTable = config.db.dbTable;
+
     this.resourceType = config.hasOwnProperty('resourceType') ? config.resourceType : 'document';
     this.requiredByRoot = config.hasOwnProperty('requiredByRoot') ? config.requiredByRoot : undefined;
 
     this.encodeURL = config.hasOwnProperty('encodeURL') ? config.encodeURL : true;
-
 
     this.apiTimeOut = config.hasOwnProperty('apiTimeOut') ? config.apiTimeOut : 0;
 
     this.lastSync = null;
     this.postgresClient = null;
 
-    this.createPostgresClient = function(){
+    pgp.pg.defaults.ssl = true;
 
-        this.postgresClient = new pg.Client({
+    this.createPostgresClient = function(){
+        
+        this.postgresClient = pgp(process.env.DATABASE_URL || {
             user: this.dbUser,
             password: this.dbPassword,
             database: this.database,
@@ -52,6 +57,7 @@ function Client (config) {
             host: this.dbHost,
             ssl: this.dbSsl
         });
+
     };
 
     this.updateDateSync = function() {
@@ -70,75 +76,34 @@ String.prototype.replaceAll = function(search, replace) {
     return this.split(search).join(replace);
 };
 
-var insertResources = function(composeObject) {
+var insertResources = async function(composeObject) {
 
-    var deferred = Q.defer();
+    console.log('insertResources')
 
     var jsonData = composeObject.jsonData;
     var count = jsonData.body.results.length;
     var inserted = 0;
 
-    var tx = new Transaction(this.Client.postgresClient);
-
-    var errorFound = false;
     var insertQuery;
 
-    tx.on('error', function(){
-        errorFound = true;
-    });
+    console.log('starting db transaction')
+    client = this.Client
+    result = await this.Client.postgresClient.tx(async function (t) {
+        // `t` and `this` here are the same;
+        // creating a sequence of transaction queries:
 
-    tx.begin();
-
-    for (var i = 0; i < count; i++){
-
-        //first check if there is a filter
-        if (composeObject.filter){
-
-            var resource = jsonData.body.results[i];
-
-            if ( composeObject.filter.isValid(resource) ){
-
-                var key = composeObject.filter.getKeyFrom(resource);
-                var value = composeObject.filter.getValueFrom(resource);
-                value = value.replaceAll("'", "''");
-                insertQuery  = "INSERT INTO "+this.Client.dbTable+" VALUES ('"+key+"','"+value+"','"+this.Client.resourceType+"')";
-                tx.query(insertQuery);
-                inserted++;
-
-                if (typeof this.Client.requiredByRoot != 'undefined' ){
-                    var insertRootQuery  = "INSERT INTO "+this.Client.requiredByRoot.table+" VALUES ('"+key+"','"+this.Client.requiredByRoot.key+"','"+this.Client.resourceType+"')";
-                    tx.query(insertRootQuery);
-                }
-            }
-        }else{
-            //process all of them
-            var key = jsonData.body.results[i].$$expanded.key;
-            var stringifiedJson = JSON.stringify(jsonData.body.results[i].$$expanded);
+        ql = []
+        jsonData.body.results.forEach( (j) => {
+            var key = j.$$expanded.key;
+            var stringifiedJson = JSON.stringify(j.$$expanded);
             stringifiedJson = stringifiedJson.replaceAll("'", "''");
-            insertQuery  = "INSERT INTO "+this.Client.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+this.Client.resourceType+"')";
-            tx.query(insertQuery);
-            inserted++;
-
-            if (typeof this.Client.requiredByRoot != 'undefined' ){
-                var insertRootQuery  = "INSERT INTO "+this.Client.requiredByRoot.table+" VALUES ('"+key+"','"+this.Client.requiredByRoot.key+"','"+this.Client.resourceType+"')";
-                tx.query(insertRootQuery);
-            }
-        }
-
-    }
-
-    tx.commit(function(){
-
-        if (errorFound){
-            totalNotSync += Number(composeObject.jsonData.body.results.length);
-        }else{
-            totalSync += Number(inserted);
-        }
-
-        deferred.resolve(composeObject.jsonData.body.$$meta.next);
-    });
-
-    return deferred.promise;
+            insertQuery  = "INSERT INTO "+client.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+client.resourceType+"')";
+            ql.push(t.none(insertQuery))
+        })
+        return t.batch(ql);
+    })
+    console.log('transaction done.')
+    return result.length
 };
 
 var updateData = function(jsonData){
@@ -184,15 +149,15 @@ var insertData = function(jsonData) {
 };
 
 // class methods
-Client.prototype.connect = function(next) {
+Client.prototype.connect = async function() {
 
     if ( this.postgresClient == null){
+        console.log("going to create client pg")
         this.createPostgresClient();
+        console.log("created")
     }
 
-    this.postgresClient.connect(function(err) {
-        next(err);
-    });
+    result = await this.postgresClient.connect();
 };
 
 //Creating-NodeJS-modules-with-both-promise-and-callback-API-support-using-Q
@@ -232,15 +197,6 @@ Client.prototype.getURL = function(){
 };
 
 
-Client.prototype.logMessage = function(message) {
-
-    if ( this.logging ){
-        console.log(message);
-    }
-
-};
-
-
 Client.prototype.getApiContent = function(next) {
 
     var deferred = Q.defer();
@@ -253,7 +209,7 @@ Client.prototype.getApiContent = function(next) {
     operation.attempt(function(attempt){
 
         if(attempt > 1){
-            self.logMessage("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
+            console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
         }
 
         needle.get(self.getURL(),self.apiCredentials, function (error,response) {
@@ -277,44 +233,34 @@ Client.prototype.getApiContent = function(next) {
 };
 
 
-Client.prototype.saveResources = function(filter,callback){
+Client.prototype.saveResources = async function(filter){
 
     var deferred = Q.defer();
     totalSync = 0;
     totalNotSync = 0;
     var clientCopy = this;
 
-    function recurse(filter,client) {
+    async function recurse(filter,client) {
 
-        client.getApiContent().then(function(jsonData){
+        jsonData = await client.getApiContent()
 
-            if (jsonData.statusCode != 200){
-                client.logMessage("SRI2POSTGRES: Error "+jsonData.statusCode+" when getting: " + client.baseApiUrl+client.functionApiUrl + " | Error Message: " + jsonData.statusMessage);
-                deferred.reject(jsonData.statusMessage);
-            }else{
-                var composeObject = {filter: filter,jsonData: jsonData};
-                return insertResources(composeObject);
-            }
+        var composeObject = {filter: filter,jsonData: jsonData};
+        inserted = await insertResources(composeObject);
+        totalSync += inserted
 
-        }).then(function(nextPage){
+        nextPage = jsonData.body.$$meta.next;
 
-            if (nextPage === undefined){
-                client.updateDateSync();
-                deferred.resolve({resourcesSync: totalSync,resourcesNotSync: totalNotSync });
-            }else{
-                client.functionApiUrl = nextPage;
-                recurse(filter,client);
-            }
-        }).fail(function(error){
-            deferred.reject(error);
-        });
+        if (nextPage == undefined) {
+            console.log("NO NEXT PAGE => RETURNING")
+            return {resourcesSync: totalSync,resourcesNotSync: totalNotSync };
+        } else {
+            console.log("NEXT PAGE: " + nextPage)
+            client.functionApiUrl = nextPage;
+            return await recurse(filter,client);            
+        }
     }
 
-    this.logMessage("SRI2POSTGRES: calling saveResources");
-    recurse(filter,clientCopy);
-
-    deferred.promise.nodeify(callback);
-    return deferred.promise;
+    return await recurse(filter,clientCopy);
 };
 
 
@@ -324,21 +270,15 @@ Client.prototype.deleteFromTable = function(propertyConfig){
 
     var clientInstance = this;
 
-    var deletionQuery = "DELETE FROM "+propertyConfig.targetTable+ " WHERE type = '"+clientInstance.resourceType+"'";
-
-    this.logMessage("SRI2POSTGRES: deleteFromTable :: Started");
-
+    var deletionQuery = "DELETE FROM "+propertyConfig.targetTable;
+    console.log("SRI2POSTGRES: deleteFromTable :: Started");
     this.postgresClient.query(deletionQuery, function (err) {
-
-        clientInstance.logMessage("SRI2POSTGRES: deleteFromTable :: end");
-
+        console.log("SRI2POSTGRES: deleteFromTable :: end");
         if (err) {
-            clientInstance.logMessage("SRI2POSTGRES: deleteFromTable :: ERROR " + err);
+            console.log("SRI2POSTGRES: deleteFromTable :: ERROR " + err);
             deferred.reject(new Error(err));
         }else{
-
-            clientInstance.logMessage("SRI2POSTGRES: deleteFromTable :: SUCCESS");
-
+            console.log("SRI2POSTGRES: deleteFromTable :: SUCCESS");
             clientInstance.propertyConfig = propertyConfig;
             deferred.resolve(clientInstance);
         }
@@ -384,7 +324,7 @@ Client.prototype.readFromTable = function(sri2PostgresClient){
         //console.log("SRI2POSTGRES: readFromTable :: Successfully Connected to database");
 
         if (error){
-            //console.log("SRI2POSTGRES: ERROR in readFromTable: " + error);
+            console.log("SRI2POSTGRES: ERROR in readFromTable: " + error);
             return deferred.reject(error);
         }
 
@@ -443,7 +383,7 @@ Client.prototype.readFromTable = function(sri2PostgresClient){
                         // we need to transform \'' -> '' to correctly insert it.
                         data = data.replaceAll("\\''", "''");
 
-                        var insertQuery  = "INSERT INTO "+sri2PostgresClient.propertyConfig.targetTable+" VALUES ('"+chunk.key+"',E'"+data+"','"+sri2PostgresClient.resourceType+"')";
+                        var insertQuery  = "INSERT INTO "+sri2PostgresClient.propertyConfig.targetTable+" VALUES ('"+chunk.key+"',E'"+data+"')";
 
                         database.query(insertQuery,function(queryError){
 
@@ -451,7 +391,7 @@ Client.prototype.readFromTable = function(sri2PostgresClient){
                                 saveError(chunk.key,chunk.link,0,queryError.message,database);
                             }else{
                                 resourcesSync++;
-                                sri2PostgresClient.logMessage("SRI2POSTGRES: readFromTable :: [ "+resourcesSync+"/"+count+" ]  INSERT SUCCESSFULLY for " +chunk.key);
+                                console.log("SRI2POSTGRES: readFromTable :: [ "+resourcesSync+"/"+count+" ]  INSERT SUCCESSFULLY for " +chunk.key);
                             }
 
                             handleStreamFlow();
@@ -489,7 +429,8 @@ Client.prototype.saveResourcesInProperty = function(propertyConfig,callback){
 
     var deferred = Q.defer();
 
-    this.logMessage("SRI2POSTGRES: saveResourcesInProperty :: Started");
+    console.log("SRI2POSTGRES: saveResourcesInProperty :: Started");
+    // Delete all content from new database
     this.deleteFromTable(propertyConfig)
         .then(this.readFromTable)
         .then(function(response){
@@ -506,7 +447,7 @@ Client.prototype.saveResourcesInPropertyWithoutTableDeletion = function(property
 
     var deferred = Q.defer();
 
-    this.logMessage("SRI2POSTGRES: saveResourcesInPropertyWithoutTableDeletion :: Started");
+    console.log("SRI2POSTGRES: saveResourcesInPropertyWithoutTableDeletion :: Started");
 
     this.propertyConfig = propertyConfig;
 
