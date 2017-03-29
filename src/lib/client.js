@@ -2,7 +2,7 @@
  * Created by pablo on 23/07/15.
  */
 
-var needle = require('needle');
+const request = require('requestretry');
 var pg = require('pg');
 var Q = require('q');
 var Transaction = require('pg-transaction');
@@ -77,7 +77,7 @@ String.prototype.replaceAll = function(search, replace) {
     return this.split(search).join(replace);
 };
 
-var insertResources = async function(composeObject) {
+var insertResources = async function(composeObject, client) {
 
     console.log('insertResources')
 
@@ -88,8 +88,10 @@ var insertResources = async function(composeObject) {
     var insertQuery;
 
     console.log('starting db transaction')
-    client = this.Client
-    result = await this.Client.postgresClient.tx(async function (t) {
+    // console.log(this.Client)
+    // client = this.Client
+//    result = await this.Client.postgresClient.tx(async function (t) {
+    result = await client.postgresClient.tx(async function (t) {
         // `t` and `this` here are the same;
         // creating a sequence of transaction queries:
 
@@ -206,39 +208,40 @@ Client.prototype.getApiContent = function(next) {
 
     this.apiCredentials.open_timeout = this.apiTimeOut;
 
-    var needleOptions = {
-      headers: self.apiHeaders, 
-    }
-    Object.assign(needleOptions, self.apiCredentials)
-    console.log("with needleOptions: ")
-    console.log(needleOptions)
+    // var reqOptions = {
+    //   headers: self.apiHeaders, 
+    // }
+    // Object.assign(reqOptions, self.apiCredentials)
+    // console.log("with reqOptions: ")
+    // console.log(reqOptions)
 
+    return request.get({url: self.getURL(), auth: self.apiCredentials, headers: self.apiHeaders, json: true})
 
-    operation.attempt(function(attempt){
+    // operation.attempt(function(attempt){
 
-        if(attempt > 1){
-            console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
-            console.log("with options: " + util.inspect(needleOptions))
-        }
+    //     if(attempt > 1){
+    //         console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
+    //         console.log("with options: " + util.inspect(reqOptions))
+    //     }
 
-        needle.get(self.getURL(), needleOptions, function (error,response) {
+    //     needle.get(, reqOptions, function (error,response) {
 
-            if (operation.retry(error)) {
-                return;
-            }
+    //         if (operation.retry(error)) {
+    //             return;
+    //         }
 
-            if (error) {
-                return deferred.reject(operation.mainError());
-            }
+    //         if (error) {
+    //             return deferred.reject(operation.mainError());
+    //         }
 
-            //Doing this bind to keep Client instance reference.
-            this.Client = self;
-            deferred.resolve(response);
-        });
-    });
+    //         //Doing this bind to keep Client instance reference.
+    //         this.Client = self;
+    //         deferred.resolve(response);
+    //     });
+    // });
 
-    deferred.promise.nodeify(next);
-    return deferred.promise;
+    // deferred.promise.nodeify(next);
+    // return deferred.promise;
 };
 
 
@@ -254,7 +257,8 @@ Client.prototype.saveResources = async function(filter){
         jsonData = await client.getApiContent()
 
         var composeObject = {filter: filter,jsonData: jsonData};
-        inserted = await insertResources(composeObject);
+        console.log(this)
+        inserted = await insertResources(composeObject, client);
         totalSync += inserted
 
         nextPage = jsonData.body.$$meta.next;
