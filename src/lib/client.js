@@ -2,6 +2,7 @@
  * Created by pablo on 23/07/15.
  */
 
+// var memwatch = require('memwatch-next');
 const request = require('requestretry');
 var pg = require('pg');
 var Q = require('q');
@@ -97,6 +98,7 @@ var insertResources = async function(composeObject, client) {
 
         ql = []
         jsonData.body.results.forEach( (j) => {
+            console.log(process.memoryUsage()); 
             var key = j.$$expanded.key;
             var stringifiedJson = JSON.stringify(j.$$expanded);
             stringifiedJson = stringifiedJson.replaceAll("'", "''");
@@ -247,33 +249,59 @@ Client.prototype.getApiContent = function(next) {
 
 Client.prototype.saveResources = async function(filter){
 
-    var deferred = Q.defer();
-    totalSync = 0;
-    totalNotSync = 0;
-    var clientCopy = this;
+    var count = 0
 
-    async function recurse(filter,client) {
+    recurse = async () => {
+        "use strict";
 
-        jsonData = await client.getApiContent()
+        console.log(process.memoryUsage()); 
 
-        var composeObject = {filter: filter,jsonData: jsonData};
-        console.log(this)
-        inserted = await insertResources(composeObject, client);
-        totalSync += inserted
+        var jsonData = await this.getApiContent()
+        //var composeObject = {filter: filter,  };
 
-        nextPage = jsonData.body.$$meta.next;
+        await Promise.each(jsonData.body.results, async (j) => {
+            var key = j.$$expanded.key;
+            var stringifiedJson = JSON.stringify(j.$$expanded).replaceAll("'", "''");
+            await this.postgresClient.none("INSERT INTO "+this.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+this.resourceType+"')")
+            count += 1
+        })
 
+        var nextPage = jsonData.body.$$meta.next;
         if (nextPage == undefined) {
             console.log("NO NEXT PAGE => RETURNING")
-            return {resourcesSync: totalSync,resourcesNotSync: totalNotSync };
+            return null;
         } else {
-            console.log("NEXT PAGE: " + nextPage)
-            client.functionApiUrl = nextPage;
-            return await recurse(filter,client);            
+            console.log("NEXT PAGE: " + nextPage + "  (" + count + " )")
+            this.functionApiUrl = nextPage;
+            return await recurse();
         }
     }
 
-    return await recurse(filter,clientCopy);
+    
+
+    // // Take first snapshot
+    // var hd = new memwatch.HeapDiff();
+
+    // console.log("start sync at " + this.functionApiUrl)
+    await recurse();
+
+    // // Take the second snapshot and compute the diff
+    // var diff = hd.end();
+    // console.log("DIFF:")
+    // console.log(diff)
+    // diff.change.details.forEach( (d) => console.log(d) )
+
+    return count
+    // console.log('starting db transaction')
+    // result = await this.postgresClient.tx(async function (t) {
+    //     // `t` and `this` here are the same;
+    //     // creating a sequence of transaction queries:
+    //     return t.batch(ql.map( (q) => t.none(q) ));
+    // })
+    // console.log('transaction done.')
+    // console.log('RESULT: ')
+    // console.log(result)
+
 };
 
 
