@@ -4,15 +4,31 @@
 
 // var memwatch = require('memwatch-next');
 const request = require('requestretry');
-var pg = require('pg');
-var Q = require('q');
-var Transaction = require('pg-transaction');
-var QueryStream = require('pg-query-stream');
-var retry = require('retry');
+// var pg = require('pg');
+//var Q = require('q');
+//var Transaction = require('pg-transaction');
+//var QueryStream = require('pg-query-stream');
+//var retry = require('retry');
 
-var pgp = require('pg-promise')();
+
 
 const Promise = require("bluebird");
+
+const monitor = require("pg-monitor");
+
+const options = {
+    // your pg-promise initialization options;
+};
+
+monitor.attach(options); // attach to all events at once;
+
+monitor.setLog((msg, info) => {
+    console.log(msg)
+    console.log(info)
+    // save the screen message into your own log;
+});
+
+var pgp = require('pg-promise')(options);
 
 // Constructor
 function Client (config) {
@@ -29,13 +45,7 @@ function Client (config) {
     this.apiHeaders = config.hasOwnProperty('headers') ? config.headers : {};
     this.apiRetries = config.hasOwnProperty('apiRetries') ? config.apiRetries : 2;
 
-    this.dbUser = config.db.dbUser;
-    this.dbPassword = config.db.dbPassword;
-    this.database = config.db.database;
-    this.dbPort = config.db.dbPort;
-    this.dbHost = config.db.dbHost;
-    this.dbSsl = config.db.hasOwnProperty('dbSsl') ? config.db.dbSsl : false;
-    this.dbTable = config.db.dbTable;
+    this.dbTable = config.dbTable;
 
     this.resourceType = config.hasOwnProperty('resourceType') ? config.resourceType : 'document';
     this.requiredByRoot = config.hasOwnProperty('requiredByRoot') ? config.requiredByRoot : undefined;
@@ -45,22 +55,15 @@ function Client (config) {
     this.apiTimeOut = config.hasOwnProperty('apiTimeOut') ? config.apiTimeOut : 0;
 
     this.lastSync = null;
-    this.postgresClient = null;
+
 
     pgp.pg.defaults.ssl = (process.env.DATABASE_URL!=undefined); //use SSL for heroku
 
-    this.createPostgresClient = function(){
-
-        this.postgresClient = pgp(process.env.DATABASE_URL || {
-            user: this.dbUser,
-            password: this.dbPassword,
-            database: this.database,
-            port: this.dbPort,
-            host: this.dbHost,
-            ssl: this.dbSsl
-        });
-
-    };
+    // this.postgresClient = null;
+    // this.createPostgresClient = function(){
+    //     this.postgresClient = pgp(process.env.DATABASE_URL || config.db);
+    // };
+    this.postgresClient = config.db;
 
     this.updateDateSync = function() {
         this.lastSync = new Date();
@@ -78,117 +81,117 @@ String.prototype.replaceAll = function(search, replace) {
     return this.split(search).join(replace);
 };
 
-var insertResources = async function(composeObject, client) {
+// var insertResources = async function(composeObject, client) {
 
-    console.log('insertResources')
+//     console.log('insertResources')
 
-    var jsonData = composeObject.jsonData;
-    var count = jsonData.body.results.length;
-    var inserted = 0;
+//     var jsonData = composeObject.jsonData;
+//     var count = jsonData.body.results.length;
+//     var inserted = 0;
 
-    var insertQuery;
+//     var insertQuery;
 
-    console.log('starting db transaction')
-    // console.log(this.Client)
-    // client = this.Client
-//    result = await this.Client.postgresClient.tx(async function (t) {
-    result = await client.postgresClient.tx(async function (t) {
-        // `t` and `this` here are the same;
-        // creating a sequence of transaction queries:
+//     console.log('starting db transaction')
+//     // console.log(this.Client)
+//     // client = this.Client
+// //    result = await this.Client.postgresClient.tx(async function (t) {
+//     result = await client.postgresClient.tx(async function (t) {
+//         // `t` and `this` here are the same;
+//         // creating a sequence of transaction queries:
 
-        ql = []
-        jsonData.body.results.forEach( (j) => {
-            console.log(process.memoryUsage()); 
-            var key = j.$$expanded.key;
-            var stringifiedJson = JSON.stringify(j.$$expanded);
-            stringifiedJson = stringifiedJson.replaceAll("'", "''");
-            insertQuery  = "INSERT INTO "+client.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+client.resourceType+"')";
-            ql.push(t.none(insertQuery))
-        })
-        return t.batch(ql);
-    })
-    console.log('transaction done.')
-    return result.length
-};
+//         ql = []
+//         jsonData.body.results.forEach( (j) => {
+//             console.log(process.memoryUsage()); 
+//             var key = j.$$expanded.key;
+//             var stringifiedJson = JSON.stringify(j.$$expanded);
+//             stringifiedJson = stringifiedJson.replaceAll("'", "''");
+//             insertQuery  = "INSERT INTO "+client.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+client.resourceType+"')";
+//             ql.push(t.none(insertQuery))
+//         })
+//         return t.batch(ql);
+//     })
+//     console.log('transaction done.')
+//     return result.length
+// };
 
-var updateData = function(jsonData){
-    var deferred = Q.defer();
-    var key = jsonData.body.key;
-    var updateQuery  = "UPDATE "+this.Client.dbTable+" SET details = '"+JSON.stringify(jsonData.body)+"' WHERE key = '"+key+"'";
+// var updateData = function(jsonData){
+//     var deferred = Q.defer();
+//     var key = jsonData.body.key;
+//     var updateQuery  = "UPDATE "+this.Client.dbTable+" SET details = '"+JSON.stringify(jsonData.body)+"' WHERE key = '"+key+"'";
 
-    this.Client.postgresClient.query(updateQuery, function (error, result) {
-        if (error) {
-            deferred.reject(new Error(error));
-        } else {
-            deferred.resolve(result);
-        }
-    });
+//     this.Client.postgresClient.query(updateQuery, function (error, result) {
+//         if (error) {
+//             deferred.reject(new Error(error));
+//         } else {
+//             deferred.resolve(result);
+//         }
+//     });
 
-    return deferred.promise;
-};
+//     return deferred.promise;
+// };
 
-//private method
-var insertData = function(jsonData) {
+// //private method
+// var insertData = function(jsonData) {
 
-    var deferred = Q.defer();
-    var key = jsonData.body.key;
-    var insertQuery  = "INSERT INTO "+this.Client.dbTable+" VALUES ('"+key+"','"+JSON.stringify(jsonData.body)+"')";
+//     var deferred = Q.defer();
+//     var key = jsonData.body.key;
+//     var insertQuery  = "INSERT INTO "+this.Client.dbTable+" VALUES ('"+key+"','"+JSON.stringify(jsonData.body)+"')";
 
-    this.Client.postgresClient.query(insertQuery, function (error, result) {
+//     this.Client.postgresClient.query(insertQuery, function (error, result) {
 
-        //error.code == 23505 UNIQUE VIOLATION
-        if (error && error.code == 23505) {
+//         //error.code == 23505 UNIQUE VIOLATION
+//         if (error && error.code == 23505) {
 
-            updateData(jsonData).then(function(response){
-                deferred.resolve(response);
-            }).fail(function(error){
-                deferred.reject(new Error(error));
-            });
+//             updateData(jsonData).then(function(response){
+//                 deferred.resolve(response);
+//             }).fail(function(error){
+//                 deferred.reject(new Error(error));
+//             });
 
-        } else {
-            deferred.resolve(result);
-        }
-    });
+//         } else {
+//             deferred.resolve(result);
+//         }
+//     });
 
-    return deferred.promise;
-};
+//     return deferred.promise;
+// };
 
-// class methods
-Client.prototype.connect = async function() {
+// // class methods
+// Client.prototype.connect = async function() {
 
-    if ( this.postgresClient == null){
-        console.log("going to create client pg")
-        this.createPostgresClient();
-        console.log("created")
-    }
+//     if ( this.postgresClient == null){
+//         console.log("going to create client pg")
+//         this.createPostgresClient();
+//         console.log("created")
+//     }
 
-    result = await this.postgresClient.connect();
-};
+//     result = await this.postgresClient.connect();
+// };
 
-//Creating-NodeJS-modules-with-both-promise-and-callback-API-support-using-Q
-Client.prototype.saveResource = function(table,callback) {
+// //Creating-NodeJS-modules-with-both-promise-and-callback-API-support-using-Q
+// Client.prototype.saveResource = function(table,callback) {
 
-    var deferred = Q.defer();
+//     var deferred = Q.defer();
 
-    if ( !this.dbTable && !table){
-        deferred.reject("table must be passed.");
-    }else{
+//     if ( !this.dbTable && !table){
+//         deferred.reject("table must be passed.");
+//     }else{
 
-        if (table) {
-            this.dbTable = table;
-        }
+//         if (table) {
+//             this.dbTable = table;
+//         }
 
-        this.getApiContent().then(insertData).then(function(response){
-            this.Client.updateDateSync();
-            deferred.resolve(response);
-        }).fail(function(error){
-            deferred.reject(error);
-        });
-    }
+//         this.getApiContent().then(insertData).then(function(response){
+//             this.Client.updateDateSync();
+//             deferred.resolve(response);
+//         }).fail(function(error){
+//             deferred.reject(error);
+//         });
+//     }
 
-    deferred.promise.nodeify(callback);
-    return deferred.promise;
-};
+//     deferred.promise.nodeify(callback);
+//     return deferred.promise;
+// };
 
 Client.prototype.getURL = function(){
 
@@ -204,129 +207,127 @@ Client.prototype.getURL = function(){
 
 Client.prototype.getApiContent = function(next) {
 
-    var deferred = Q.defer();
-    var operation = retry.operation({retries: this.apiRetries});
     var self = this;
 
-    this.apiCredentials.open_timeout = this.apiTimeOut;
-
-    // var reqOptions = {
-    //   headers: self.apiHeaders, 
-    // }
-    // Object.assign(reqOptions, self.apiCredentials)
-    // console.log("with reqOptions: ")
-    // console.log(reqOptions)
+    // this.apiCredentials.open_timeout = this.apiTimeOut;
 
     return request.get({url: self.getURL(), auth: self.apiCredentials, headers: self.apiHeaders, json: true})
-
-    // operation.attempt(function(attempt){
-
-    //     if(attempt > 1){
-    //         console.log("getApiContent retry attempt: "+attempt+ " for: "+self.baseApiUrl+self.functionApiUrl);
-    //         console.log("with options: " + util.inspect(reqOptions))
-    //     }
-
-    //     needle.get(, reqOptions, function (error,response) {
-
-    //         if (operation.retry(error)) {
-    //             return;
-    //         }
-
-    //         if (error) {
-    //             return deferred.reject(operation.mainError());
-    //         }
-
-    //         //Doing this bind to keep Client instance reference.
-    //         this.Client = self;
-    //         deferred.resolve(response);
-    //     });
-    // });
-
-    // deferred.promise.nodeify(next);
-    // return deferred.promise;
 };
 
 
 Client.prototype.saveResources = async function(filter){
 
     var count = 0
+    var done = false
 
-    recurse = async () => {
+    const removeDollarFields = (o) => {
+        for (var property in o) {
+            if (o.hasOwnProperty(property)) {
+                if (property.startsWith("$$") && property!='$$meta') {
+                    delete o[property]
+                } else  {
+                    if (o.property !== null && typeof o.property === 'object') {
+                        removeDollarFields(o)
+                    }
+                }
+            }
+        }
+        return o
+    }
+
+    const handlePage = async function() {
         "use strict";
 
-        console.log(process.memoryUsage()); 
+        var res = await this.getApiContent()
 
-        var jsonData = await this.getApiContent()
-        //var composeObject = {filter: filter,  };
+        if (res.statusCode != 200) {
+            console.log(`\nFAILURE: ${r} => ${res.statusCode}\n${gutil.inspect(res.body)}\n\n`)
+            //TODO:  error exit !
+        } else if (res.body.results.length > 0) {
+            
+            var sql = `INSERT INTO ${this.dbTable} VALUES\n`
+                sql += res.body.results.map( e => {
+                                const key = e.$$expanded.key;
+                                const stringifiedJson = JSON.stringify(removeDollarFields(e.$$expanded)).replaceAll("'", "''");
+                                return `('${key}', '${stringifiedJson}','${this.resourceType}')`
+                            }).join(',\n')
+                sql += ';'
 
-        await Promise.each(jsonData.body.results, async (j) => {
-            var key = j.$$expanded.key;
-            var stringifiedJson = JSON.stringify(j.$$expanded).replaceAll("'", "''");
-            await this.postgresClient.none("INSERT INTO "+this.dbTable+" VALUES ('"+key+"','"+stringifiedJson+"','"+this.resourceType+"')")
-            count += 1
-        })
+            try {
+                const query_reply = await this.postgresClient.result(sql)
+                if (query_reply.rowCount != res.body.results.length) {
+                    console.log(`\n\nWARNING: INSERT count mismatch !`)    
+                    console.log(`for query: ${sql}`)
+                    console.log(`${query_reply.rowCount} <-> ${res.body.results.length}\n\n`)
+                }
+            } catch (err) {
+                console.log(`\n\nSQL INSERT failed: ${err}`)
+                console.log(`for query: ${sql}\n\n`)
 
-        var nextPage = jsonData.body.$$meta.next;
+                console.log(this.dbTable)
+
+                process.exit(1)
+            }        
+        } 
+        count += res.body.results.length
+
+        var nextPage = res.body.$$meta.next;
         if (nextPage == undefined) {
-            console.log("NO NEXT PAGE => RETURNING")
-            return null;
+            console.log(`NO NEXT PAGE => RETURNING (${this.dbTable})`)
+            done = true
         } else {
-            console.log("NEXT PAGE: " + nextPage + "  (" + count + " )")
+            console.log(`NEXT PAGE: ${nextPage} (${count}) - (${this.dbTable})`)
             this.functionApiUrl = nextPage;
-            return await recurse();
         }
     }
 
-    
-
-    // // Take first snapshot
-    // var hd = new memwatch.HeapDiff();
-
-    // console.log("start sync at " + this.functionApiUrl)
-    await recurse();
-
-    // // Take the second snapshot and compute the diff
-    // var diff = hd.end();
-    // console.log("DIFF:")
-    // console.log(diff)
-    // diff.change.details.forEach( (d) => console.log(d) )
+    while (!done) {
+        await handlePage.call(this)    
+    }
 
     return count
-    // console.log('starting db transaction')
-    // result = await this.postgresClient.tx(async function (t) {
-    //     // `t` and `this` here are the same;
-    //     // creating a sequence of transaction queries:
-    //     return t.batch(ql.map( (q) => t.none(q) ));
-    // })
-    // console.log('transaction done.')
-    // console.log('RESULT: ')
-    // console.log(result)
-
 };
 
-
-Client.prototype.deleteFromTable = function(propertyConfig){
-
-    var deferred = Q.defer();
-
+Client.prototype.deleteFromTable = async function(){
     var clientInstance = this;
 
-    var deletionQuery = "DELETE FROM "+propertyConfig.targetTable;
-    console.log("SRI2POSTGRES: deleteFromTable :: Started");
-    this.postgresClient.query(deletionQuery, function (err) {
-        console.log("SRI2POSTGRES: deleteFromTable :: end");
-        if (err) {
-            console.log("SRI2POSTGRES: deleteFromTable :: ERROR " + err);
-            deferred.reject(new Error(err));
-        }else{
-            console.log("SRI2POSTGRES: deleteFromTable :: SUCCESS");
-            clientInstance.propertyConfig = propertyConfig;
-            deferred.resolve(clientInstance);
-        }
-    });
-
-    return deferred.promise;
+    var sql = `DELETE FROM ${this.dbTable};`
+    try {
+        // console.log('this.postgresClient:')
+        // console.log(this.postgresClient)
+        const query_reply = await this.postgresClient.result(sql)
+        //console.log(`DELETED ${query_reply.rowCount} rows.`)
+        return query_reply.rowCount
+    } catch (err) {
+        console.log(`\n\nSQL DELETE failed: ${err}`)
+        console.log(`for query: ${sql}\n\n`)
+        process.exit(1)
+    }
 };
+
+
+// Client.prototype.deleteFromTable = function(propertyConfig){
+
+//     var deferred = Q.defer();
+
+//     var clientInstance = this;
+
+//     var deletionQuery = "DELETE FROM "+propertyConfig.targetTable;
+//     console.log("SRI2POSTGRES: deleteFromTable :: Started");
+//     this.postgresClient.query(deletionQuery, function (err) {
+//         console.log("SRI2POSTGRES: deleteFromTable :: end");
+//         if (err) {
+//             console.log("SRI2POSTGRES: deleteFromTable :: ERROR " + err);
+//             deferred.reject(new Error(err));
+//         }else{
+//             console.log("SRI2POSTGRES: deleteFromTable :: SUCCESS");
+//             clientInstance.propertyConfig = propertyConfig;
+//             deferred.resolve(clientInstance);
+//         }
+//     });
+
+//     return deferred.promise;
+// };
 
 var saveError = function (key,link,code,message,database){
     var deferred = Q.defer();
@@ -360,7 +361,7 @@ Client.prototype.readFromTable = function(sri2PostgresClient){
 
     //console.log("SRI2POSTGRES: readFromTable :: Connecting to database");
 
-    database.connect(function(error){
+    // database.connect(function(error){
 
         //console.log("SRI2POSTGRES: readFromTable :: Successfully Connected to database");
 
@@ -461,7 +462,7 @@ Client.prototype.readFromTable = function(sri2PostgresClient){
                 deferred.resolve({resourcesSync: resourcesSync, resourcesNotSync: count-resourcesSync});
             }
         });
-    });
+    // });
 
     return deferred.promise;
 };
@@ -502,6 +503,10 @@ Client.prototype.saveResourcesInPropertyWithoutTableDeletion = function(property
     deferred.promise.nodeify(callback);
     return deferred.promise;
 };
+
+// Client.prototype.end = function() {
+//     pgp.end(); // terminate the database connection pool
+// }
 
 // export the class
 module.exports = Client;

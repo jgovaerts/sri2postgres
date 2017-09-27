@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "needle": "~1.6.0",
-    "pg": "2.x",
     "q": "1.4.x",
     "pg-transaction": "1.0.x",
     "pg-query-stream": "~0.7.0",
     "retry": "~0.7.0",
     "pg-promise":"5.3.4",
-    "bluebird": "3.4.6"
+    "bluebird": "3.4.6",
+    "pg-monitor": "0.8.2"
   },
   "repository": {
     "type": "git",
