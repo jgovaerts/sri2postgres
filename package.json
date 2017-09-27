@@ -1,6 +1,6 @@
 {
   "name": "sri2postgres",
-  "version": "1.2.45",
+  "version": "1.2.46",
   "description": "This is a module to sync any SRI interface to one or more database tables in a postgres 9.4 instance",
   "main": "./src/lib/client.js",
   "scripts": {
